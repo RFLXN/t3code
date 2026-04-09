@@ -1,5 +1,5 @@
 {
-  description = "T3 Code desktop app for Linux";
+  description = "T3 Code desktop app for Linux and macOS";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -11,20 +11,33 @@
       lib = nixpkgs.lib;
       supportedSystems = [
         "aarch64-linux"
+        "aarch64-darwin"
         "x86_64-linux"
+        "x86_64-darwin"
       ];
       forAllSystems = lib.genAttrs supportedSystems;
 
       desktopPackageJson = builtins.fromJSON (builtins.readFile ./apps/desktop/package.json);
 
+      bunOsBySystem = {
+        aarch64-linux = "linux";
+        aarch64-darwin = "darwin";
+        x86_64-linux = "linux";
+        x86_64-darwin = "darwin";
+      };
+
       bunCpuBySystem = {
         aarch64-linux = "arm64";
+        aarch64-darwin = "arm64";
         x86_64-linux = "x64";
+        x86_64-darwin = "x64";
       };
 
       nodeModulesHashBySystem = {
         aarch64-linux = "sha256-2LEVhI0ralzSrVdrZN6hWYAPI0alpBBFkGg5xm5q3vo=";
+        aarch64-darwin = "sha256-uH3H2/uax7rFj7lcnTA4NfNsSG6WGgrRIUQh3ZWrBQA=";
         x86_64-linux = "sha256-s9F++9cjkZUc5p9p0VGFhDF7qFWK/7sN+eG6nuFL6so=";
+        x86_64-darwin = "sha256-QznDpbv3kV5qqPx0lV80QAnVxaEivTyKN+CQ60TguCA=";
       };
 
       excludedPaths = [
@@ -56,18 +69,24 @@
         system:
         let
           pkgs = import nixpkgs { inherit system; };
+          bunOs = bunOsBySystem.${system};
           bunCpu = bunCpuBySystem.${system};
           nodeModulesHash = nodeModulesHashBySystem.${system};
+          compiler = pkgs.stdenv.cc;
 
-          desktopItem = pkgs.makeDesktopItem {
-            name = "t3code";
-            desktopName = "T3 Code";
-            genericName = "Coding agent GUI";
-            exec = "t3code %U";
-            icon = "t3code";
-            categories = [ "Development" ];
-            terminal = false;
-          };
+          desktopItem =
+            if pkgs.stdenv.isLinux then
+              pkgs.makeDesktopItem {
+                name = "t3code";
+                desktopName = "T3 Code";
+                genericName = "Coding agent GUI";
+                exec = "t3code %U";
+                icon = "t3code";
+                categories = [ "Development" ];
+                terminal = false;
+              }
+            else
+              null;
 
           nodeModules = pkgs.stdenvNoCC.mkDerivation {
             pname = "t3code-node-modules";
@@ -85,7 +104,7 @@
               pkgs."node-gyp"
               pkgs.python3
               pkgs.gnumake
-              pkgs.gcc
+              compiler
               pkgs.writableTmpDirAsHomeHook
             ];
 
@@ -97,7 +116,7 @@
 
               export BUN_INSTALL_CACHE_DIR="$(mktemp -d)"
 
-              bun install --frozen-lockfile --ignore-scripts --no-progress --os=linux --cpu=${bunCpu}
+              bun install --frozen-lockfile --ignore-scripts --no-progress --os=${bunOs} --cpu=${bunCpu}
 
               runHook postBuild
             '';
@@ -133,13 +152,12 @@
               pkgs."node-gyp"
               pkgs.python3
               pkgs.gnumake
-              pkgs.gcc
+              compiler
               pkgs.makeBinaryWrapper
-              pkgs.copyDesktopItems
               pkgs.writableTmpDirAsHomeHook
-            ];
+            ] ++ lib.optionals pkgs.stdenv.isLinux [ pkgs.copyDesktopItems ];
 
-            desktopItems = [ desktopItem ];
+            desktopItems = lib.optionals (desktopItem != null) [ desktopItem ];
 
             configurePhase = ''
               runHook preConfigure
@@ -202,14 +220,22 @@
                 "$appRoot/apps/server/node_modules/@t3tools/shared" \
                 "$appRoot/apps/server/node_modules/@t3tools/web"
 
-              install -Dm644 \
-                apps/desktop/resources/icon.png \
-                "$out/share/icons/hicolor/512x512/apps/t3code.png"
+              ${lib.optionalString pkgs.stdenv.isLinux ''
+                install -Dm644 \
+                  apps/desktop/resources/icon.png \
+                  "$out/share/icons/hicolor/512x512/apps/t3code.png"
+              ''}
 
-              makeWrapper ${pkgs.lib.getExe pkgs.electron_40} "$out/bin/t3code" \
-                --set-default ELECTRON_OZONE_PLATFORM_HINT auto \
-                --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git ]} \
+              wrapperArgs=(
+                --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git ]}
                 --add-flags "$appRoot/apps/desktop/dist-electron/main.js"
+              )
+              ${lib.optionalString pkgs.stdenv.isLinux ''
+                wrapperArgs+=(
+                  --set-default ELECTRON_OZONE_PLATFORM_HINT auto
+                )
+              ''}
+              makeWrapper ${pkgs.lib.getExe pkgs.electron_40} "$out/bin/t3code" "''${wrapperArgs[@]}"
 
               runHook postInstall
             '';
@@ -253,12 +279,13 @@
             perSystem.${system}.pkgs."node-gyp"
             perSystem.${system}.pkgs.python3
             perSystem.${system}.pkgs.gnumake
-            perSystem.${system}.pkgs.gcc
+            perSystem.${system}.pkgs.stdenv.cc
             perSystem.${system}.pkgs.electron_40
             perSystem.${system}.pkgs.git
+            perSystem.${system}.pkgs.nixfmt
+          ] ++ lib.optionals perSystem.${system}.pkgs.stdenv.isLinux [
             perSystem.${system}.pkgs.p7zip
             perSystem.${system}.pkgs.squashfsTools
-            perSystem.${system}.pkgs.nixfmt
           ];
         };
       });
