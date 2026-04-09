@@ -39,6 +39,46 @@ brew install --cask t3-code
 yay -S t3code-bin
 ```
 
+#### Nix (Flakes)
+
+This repository exposes a desktop package through `flake.nix` for `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, and `aarch64-darwin`.
+
+Run it temporarily without installing:
+
+```bash
+nix run github:pingdotgg/t3code#t3code
+```
+
+From a local clone of this repository, use:
+
+```bash
+nix run .#t3code
+```
+
+On NixOS, install it as a system package through your `nixosSystem` flake:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    t3code.url = "github:pingdotgg/t3code";
+  };
+
+  outputs = { nixpkgs, t3code, ... }: {
+    nixosConfigurations.my-host = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ({ pkgs, ... }: {
+          environment.systemPackages = [
+            t3code.packages.${pkgs.system}.t3code
+          ];
+        })
+      ];
+    };
+  };
+}
+```
+
 ## Some notes
 
 We are very very early in this project. Expect bugs.
